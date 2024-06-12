@@ -1,0 +1,183 @@
+---
+title: "Influenza A H7N9 in China, 2013"
+format: dashboard
+theme: lux
+---
+
+```{r}
+# Load packages 
+if(!require(pacman)) install.packages("pacman")
+pacman::p_load(tidyverse, outbreaks, bslib, bsicons, shiny, 
+               rgeoboundaries, plotly, htmltools, reactable, sparkline,htmlwidgets, bslib)
+
+# view data
+#head(outbreaks::fluH7N9_china_2013)
+```
+
+```{r}
+#load the influenza A H7N9 in China, 2013 dataset
+data("fluH7N9_china_2013")
+
+#calculate the total number of cases
+total_cases <- nrow(fluH7N9_china_2013)
+
+
+# Calculate the total number of deaths, handling NA values
+total_deaths <- sum(fluH7N9_china_2013$outcome == "Death", na.rm = TRUE)
+
+#Total hospitalization
+total_hospitalizations <- fluH7N9_china_2013 %>%
+  filter(!is.na(date_of_hospitalisation)) %>%
+  nrow()
+```
+
+```{r}
+# Summarize the data to get the number of cases per province
+cases_per_province <- fluH7N9_china_2013 %>%
+  group_by(province) %>%
+  summarise(case_count = n()) %>%
+  head(13) %>% 
+  arrange(desc(case_count))
+
+cases_per_province <- cases_per_province %>%
+  mutate(tooltip_label = paste(province, case_count, sep = ": "))
+
+# Create the plot with a discrete color palette
+influ_china_chart <- ggplot(cases_per_province, aes(x = case_count, 
+                                                    y = reorder(province, case_count), 
+                                                    fill = factor(case_count), 
+                                                    text = tooltip_label)) + 
+  geom_bar(stat = "identity") + 
+  scale_fill_viridis_d(option = "A") +  # Use discrete color scale
+  labs(x = "Number of Cases", y = NULL) + 
+  theme(legend.position = "none")
+
+# Convert ggplot2 object to plotly object to add tooltips
+influ_china_plotly <- ggplotly(influ_china_chart, tooltip = "text")
+
+
+```
+
+```{r results='hide', message=FALSE, warning = FALSE}
+pacman::p_load(outbreaks, rgeoboundaries, plotly)
+library(RColorBrewer)
+### MAP OF CASES PER PROVINCE
+province_summary <- fluH7N9_china_2013 %>% 
+  group_by(province) %>% 
+  summarise(total_cases = n()) 
+
+china_map <- rgeoboundaries::gb_adm1("china")
+
+# Check the keys to see if join will be successful
+setdiff(province_summary$province, china_map$shapeName)
+setdiff(china_map$shapeName, province_summary$province)
+# Some work to be done to harmonize these
+
+china_map <- china_map %>%
+  # Remove the strings Province, Municipality and Autonomous Region 
+  # to allow matching
+  mutate(province = str_trim(
+    str_remove(shapeName, "Province|Municipality|Autonomous Region")
+  ))
+
+# Check if join will work fine
+setdiff(province_summary$province, china_map$province)
+
+# Fix Guangdong, which based on a quick Google is actually Guangzhou
+china_map <- china_map %>% 
+  mutate(province = if_else(province == "Guangzhou", "Guangdong", province)) 
+  
+# Check again
+setdiff(province_summary$province, china_map$province)
+
+# Now join
+china_map_joined <- 
+  left_join(china_map, province_summary, by = "province") %>% 
+  # Create tooltip label 
+  mutate(tooltip_label = paste0(province, ": ", total_cases))
+
+
+# Define a different color palette
+my_palette <- brewer.pal(n = 9, name = "YlOrRd")
+
+# Create the map plot with the specified color palette
+china_map_plot <- ggplot(china_map_joined) +
+  geom_sf(aes(fill = total_cases, text = tooltip_label)) + 
+  scale_fill_gradientn(colors = my_palette) +  # Use the defined color palette
+  theme_void() +
+  labs(fill = "Number of Cases") + 
+  theme(legend.position = "none")
+
+# Convert the ggplot object to plotly object
+china_map_plot_ggplotly <- ggplotly(china_map_plot, tooltip = "text")
+
+```
+
+
+# HOME 
+
+## Row 1 {height=25%}
+
+```{r}
+value_box(
+  title = "Total Cases",
+  value = total_cases,
+  showcase = bsicons::bs_icon("virus"),
+  theme = value_box_theme(bg = "#ff6f61", fg = "black")
+  )
+```
+
+```{r}
+value_box(
+  title = "Total Hospitalizations",
+  value = total_hospitalizations,
+  showcase = bsicons::bs_icon("hospital"),
+  theme = value_box_theme(bg ="#ffcc5c", fg = "black")
+  )
+```
+
+```{r}
+value_box(
+  title = "Total Deaths",
+  value = total_deaths,
+  showcase = bsicons::bs_icon("graph-up"),
+  theme = value_box_theme(bg ="#a0ced9", fg = "black")
+)
+```
+
+
+## Row 2 {height=75%}
+
+### {width=30%}
+
+```{r title = "Number of Cases by Province"}
+influ_china_plotly
+```
+
+### {width=70%}
+
+```{r title = "Map of Provinces by Number of Cases"}
+china_map_plot_ggplotly
+```
+
+# DOWNLOAD DATA
+
+The data used in this dashboard is shown below and can be downloaded as a CSV. 
+
+```{r message=FALSE}
+# Load packages 
+if(!require(pacman)) install.packages("pacman")
+pacman::p_load(htmltools, reactable, outbreaks)
+
+htmltools::browsable(
+  tagList(
+    reactable(fluH7N9_china_2013, 
+              elementId = "Influenza-table", 
+              searchable = T, 
+              filterable = T), 
+    
+tags$button("Download as CSV", 
+            onclick = "Reactable.downloadDataCSV('Influenza-table')")
+  )
+)
+```
